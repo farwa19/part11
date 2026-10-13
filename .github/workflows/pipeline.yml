@@ -28,4 +28,11 @@ jobs:
         run: npm run eslint
       - name: run test   
         run: npm run test
+      - name: Deploy to Render
+        if: github.event_name == 'push'
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          test -n "$RENDER_DEPLOY_HOOK" || { echo "RENDER_DEPLOY_HOOK secret is not configured"; exit 1; }
+          curl --fail --silent --show-error --request POST "$RENDER_DEPLOY_HOOK"
         
