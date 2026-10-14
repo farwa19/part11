@@ -38,10 +38,7 @@ jobs:
         run: |
           test -n "$RENDER_DEPLOY_HOOK" || { echo "RENDER_DEPLOY_HOOK secret is not configured"; exit 1; }
           curl --fail --silent --show-error --request POST "$RENDER_DEPLOY_HOOK"
-      - name: Bump version and push tag
-        uses: anothrNick/github-tag-action@1.75.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+     
   tag_release:
     needs: [simple_deployment_pipeline]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -49,8 +46,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Bump version and push tag
-        uses: anothrNick/github-tag-action@1.75.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEFAULT_BUMP: patch
+    - uses: actions/checkout@v6
+    - name: Bump version and push tag
+      uses: anothrNick/github-tag-action@1.75.0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        DEFAULT_BUMP: patch
