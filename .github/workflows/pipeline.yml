@@ -32,7 +32,7 @@ jobs:
       - name: run test   
         run: npm run test
       - name: Deploy to Render
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && !contains(join(github.event.commits.*.message, ' '), '#skip')
         env:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
@@ -41,7 +41,7 @@ jobs:
      
   tag_release:
     needs: [simple_deployment_pipeline]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(join(github.event.commits.*.message, ' '), '#skip')
     runs-on: ubuntu-latest
     permissions:
       contents: write
