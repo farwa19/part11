@@ -30,8 +30,8 @@ jobs:
 
       - name: Run tests
         run: npm run test
+
   e2e:
-    needs: build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -47,8 +47,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
+      - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
+
+      - name: Verify Chromium installation
+        run: npx playwright install --list
 
       - name: Run Playwright tests
         run: npm run test
