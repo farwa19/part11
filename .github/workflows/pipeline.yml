@@ -6,7 +6,7 @@ on:
       - main
   pull_request:
     branches: [main]
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened]
 
 jobs:
   simple_deployment_pipeline:
@@ -14,55 +14,141 @@ jobs:
     defaults:
       run:
         working-directory: ./fs-pokedex
+
     steps:
       - uses: actions/checkout@v6
+
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - name: Install dependencies 
-        run: npm install  
-      - name: Install Playwright dependencies
+
+      - name: Install dependencies
         run: npm ci
-        working-directory: .
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps
-        working-directory: .
-      - name: Check style        
+
+      - name: Check style
         run: npm run eslint
-      - name: run test   
+
+  e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./fs-pokedex
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
         run: npm run test
-      - name: Notify Discord
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          JOB_STATUS: ${{ job.status }}
-          REPOSITORY: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          test -n "$DISCORD_WEBHOOK_URL" || { echo "DISCORD_WEBHOOK_URL secret is not configured"; exit 1; }
-          MESSAGE="$REPOSITORY pipeline: $JOB_STATUS ($SHA)"
-          curl --fail --silent --show-error \
-            --header "Content-Type: application/json" \
-            --data "$(jq -n --arg content "$MESSAGE" '{content: $content}')" \
-            "$DISCORD_WEBHOOK_URL"
+
+  deploy:
+    needs: [simple_deployment_pipeline, e2e]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      !contains(github.event.head_commit.message || '', '#skip')
+    runs-on: ubuntu-latest
+
+    steps:
       - name: Deploy to Render
-        if: github.event_name == 'push' && !contains(github.event.head_commit.message || '', '#skip')
         env:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
-          test -n "$RENDER_DEPLOY_HOOK" || { echo "RENDER_DEPLOY_HOOK secret is not configured"; exit 1; }
-          curl --fail --silent --show-error --request POST "$RENDER_DEPLOY_HOOK"
-     
-  tag_release:
-    needs: [simple_deployment_pipeline]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message || '', '#skip')
+          test -n "$RENDER_DEPLOY_HOOK" || {
+            echo "RENDER_DEPLOY_HOOK secret is not configured"
+            exit 1
+          }
+          curl --fail --silent --show-error \
+            --request POST "$RENDER_DEPLOY_HOOK"
+
+  notify_failure:
+    needs: [simple_deployment_pipeline, e2e, deploy]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      (needs.simple_deployment_pipeline.result == 'failure' ||
+       needs.e2e.result == 'failure' ||
+       needs.deploy.result == 'failure')
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Notify pipeline failure
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          status: failure
+          title: "❌ Deployment Pipeline Failed!"
+          description: |
+            The pipeline encountered an error.
+
+            **Repository:** ${{ github.repository }}
+            **Branch:** ${{ github.ref_name }}
+            **Commit:** ${{ github.sha }}
+            **Workflow:** ${{ github.workflow }}
+
+            [View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          username: "Fullstack Deployment"
+          color: 0xE74C3C
+
+  notify_success:
+    needs: [simple_deployment_pipeline, e2e, deploy]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.simple_deployment_pipeline.result == 'success' &&
+      needs.e2e.result == 'success' &&
+      needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Notify deployment success
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          status: success
+          title: "✅ Deployment Successful!"
+          description: |
+            A new version was deployed to production.
+
+            **Repository:** ${{ github.repository }}
+            **Commit:** ${{ github.sha }}
+
+            [View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          username: "Fullstack Deployment"
+          color: 0x2ECC71
+
+  tag_release:
+    needs: [simple_deployment_pipeline, e2e, deploy]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      !contains(github.event.head_commit.message || '', '#skip') &&
+      needs.simple_deployment_pipeline.result == 'success' &&
+      needs.e2e.result == 'success' &&
+      needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+
     permissions:
       contents: write
+
     steps:
-    - uses: actions/checkout@v6
-    - name: Bump version and push tag
-      uses: anothrNick/github-tag-action@1.75.0
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        DEFAULT_BUMP: patch
+      - uses: actions/checkout@v6
+
+      - name: Bump version and push tag
+        uses: anothrNick/github-tag-action@1.75.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
