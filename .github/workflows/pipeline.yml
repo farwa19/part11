@@ -30,10 +30,12 @@ jobs:
 
       - name: Run tests
         run: npm run test
-
   e2e:
     needs: build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./fs-pokedex
 
     steps:
       - uses: actions/checkout@v6
@@ -46,10 +48,10 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npm exec -- playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Run Playwright tests
-        run: npm exec -- playwright test
+        run: npm run test
 
   deploy:
     needs: [build, e2e]
