@@ -31,6 +31,20 @@ jobs:
         run: npm run eslint
       - name: run test   
         run: npm run test
+      - name: Notify Discord
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          JOB_STATUS: ${{ job.status }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          test -n "$DISCORD_WEBHOOK_URL" || { echo "DISCORD_WEBHOOK_URL secret is not configured"; exit 1; }
+          MESSAGE="$REPOSITORY pipeline: $JOB_STATUS ($SHA)"
+          curl --fail --silent --show-error \
+            --header "Content-Type: application/json" \
+            --data "$(jq -n --arg content "$MESSAGE" '{content: $content}')" \
+            "$DISCORD_WEBHOOK_URL"
       - name: Deploy to Render
         if: github.event_name == 'push' && !contains(github.event.head_commit.message || '', '#skip')
         env:
